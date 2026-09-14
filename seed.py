@@ -52,7 +52,13 @@ def seed(raport_path: str | None = None):
         full_name="Староста Демо",
         role=UserRole.monitor,
     )
-    db.add_all([teacher, monitor])
+    admin = User(
+        login="admin",
+        password_hash=hash_password("admin123"),
+        full_name="Администратор системы",
+        role=UserRole.admin,
+    )
+    db.add_all([teacher, monitor, admin])
     db.flush()
 
     if raport_path and Path(raport_path).is_file():
@@ -86,7 +92,7 @@ def seed(raport_path: str | None = None):
 
     print(f"Группа: {group_name} ({group_year})")
     print(f"Студентов: {len(students)}")
-    print("Пользователи: teacher/teacher123, starosta/starosta123")
+    print("Пользователи: teacher/teacher123, starosta/starosta123, admin/admin123")
 
 
 if __name__ == "__main__":

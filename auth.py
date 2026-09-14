@@ -68,3 +68,9 @@ def require_monitor(user: User = Depends(get_current_user)) -> User:
     if user.role != UserRole.monitor:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Требуется роль старосты")
     return user
+
+
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    if user.role != UserRole.admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Требуется роль администратора")
+    return user

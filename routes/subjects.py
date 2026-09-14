@@ -57,8 +57,10 @@ def update_subject(
     subject_id: int,
     data: SubjectUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_teacher),
+    user: User = Depends(get_current_user),
 ):
+    if user.role not in (UserRole.teacher, UserRole.admin):
+        raise HTTPException(status_code=403, detail="Нет прав на назначение предмета")
     s = db.get(Subject, subject_id)
     if not s:
         raise HTTPException(status_code=404, detail="Предмет не найден")

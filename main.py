@@ -6,9 +6,14 @@ from fastapi.middleware.cors import CORSMiddleware
 import models  # noqa: F401
 from database import Base, engine
 from routes import (
+    admin as admin_router,
+    analytics as analytics_router,
     auth as auth_router,
     export as export_router,
     groups as groups_router,
+    ktc as ktc_router,
+    push as push_router,
+    schedule as schedule_router,
     sessions as sessions_router,
     students as students_router,
     subjects as subjects_router,
@@ -34,6 +39,11 @@ app.include_router(subjects_router.router)
 app.include_router(sessions_router.router)
 app.include_router(export_router.router)
 app.include_router(upload_router.router)
+app.include_router(admin_router.router)
+app.include_router(analytics_router.router)
+app.include_router(push_router.router)
+app.include_router(ktc_router.router)
+app.include_router(schedule_router.router)
 
 
 @app.get("/health")

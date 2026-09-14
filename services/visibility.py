@@ -7,6 +7,8 @@ from models import AttendanceSession, Group, Subject, User, UserRole
 def visible_groups(db: Session, user: User) -> list[Group]:
     """Группы, которые видит пользователь."""
     q = db.query(Group)
+    if user.role == UserRole.admin:
+        return q.order_by(Group.name).all()
     if user.role == UserRole.monitor:
         if user.group_id is None:
             return []
@@ -28,6 +30,8 @@ def visible_groups(db: Session, user: User) -> list[Group]:
 
 def can_access_session(db: Session, user: User, s: AttendanceSession) -> bool:
     """Может ли пользователь видеть/подтверждать сессию."""
+    if user.role == UserRole.admin:
+        return True
     if user.role == UserRole.monitor:
         return user.group_id is not None and s.group_id == user.group_id
     if s.group is not None and s.group.curator_id == user.id:

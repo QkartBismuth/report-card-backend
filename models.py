@@ -9,6 +9,8 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import relationship
@@ -19,6 +21,7 @@ from database import Base
 class UserRole(str, enum.Enum):
     teacher = "teacher"
     monitor = "monitor"
+    admin = "admin"
 
 
 class MarkValue(str, enum.Enum):
@@ -59,10 +62,13 @@ class Group(Base):
     name = Column(String(50), nullable=False, unique=True)
     year = Column(Integer, nullable=True)
     curator_id = Column(Integer, ForeignKey("users.id", name="fk_groups_curator"), nullable=True)
+    ktc_branch_id = Column(Integer, nullable=True)
+    ktc_group_id = Column(Integer, nullable=True)
 
     curator = relationship("User", foreign_keys=[curator_id])
     students = relationship("Student", back_populates="group", cascade="all, delete-orphan")
     sessions = relationship("AttendanceSession", back_populates="group")
+    schedule = relationship("ScheduleEntry", back_populates="group", cascade="all, delete-orphan")
 
 
 class Student(Base):
@@ -107,3 +113,77 @@ class AttendanceRecord(Base):
 
     session = relationship("AttendanceSession", back_populates="records")
     student = relationship("Student", back_populates="records")
+
+
+class Device(Base):
+    __tablename__ = "devices"
+
+    id = Column(Integer, primary_key=True)
+    device_id = Column(String(200), unique=True, nullable=False, index=True)
+    platform = Column(String(50), nullable=True)
+    model = Column(String(200), nullable=True)
+    manufacturer = Column(String(200), nullable=True)
+    os_version = Column(String(100), nullable=True)
+    app_version = Column(String(50), nullable=True)
+    ip = Column(String(64), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    last_seen = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ErrorLog(Base):
+    __tablename__ = "error_logs"
+
+    id = Column(Integer, primary_key=True)
+    device_id = Column(String(200), nullable=True)
+    app_version = Column(String(50), nullable=True)
+    message = Column(Text, nullable=False)
+    stack = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ScheduleEntry(Base):
+    __tablename__ = "schedule_entries"
+
+    id = Column(Integer, primary_key=True)
+    group_id = Column(Integer, ForeignKey("groups.id", ondelete="CASCADE"), nullable=False)
+    day_of_week = Column(Integer, nullable=False)
+    pair_number = Column(Integer, nullable=False)
+    subject_id = Column(Integer, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True)
+    teacher_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    teacher_name = Column(String(150), nullable=True)
+    classroom = Column(String(50), nullable=True)
+    time_start = Column(String(10), nullable=True)
+    time_end = Column(String(10), nullable=True)
+    cancelled = Column(Boolean, default=False, nullable=False)
+    note = Column(String(200), nullable=True)
+    __table_args__ = (
+        UniqueConstraint(
+            "group_id", "day_of_week", "pair_number", name="uq_schedule_group_day_pair"
+        ),
+    )
+
+    group = relationship("Group", back_populates="schedule")
+    subject = relationship("Subject")
+    teacher = relationship("User", foreign_keys=[teacher_id])
+
+
+class ServerConfig(Base):
+    __tablename__ = "server_config"
+
+    id = Column(Integer, primary_key=True)
+    key = Column(String(100), unique=True, nullable=False)
+    value = Column(Text, nullable=True)
+
+
+def get_config(db, key: str, default=None):
+    row = db.query(ServerConfig).filter(ServerConfig.key == key).first()
+    return row.value if row else default
+
+
+def set_config(db, key: str, value):
+    row = db.query(ServerConfig).filter(ServerConfig.key == key).first()
+    if row:
+        row.value = value
+    else:
+        db.add(ServerConfig(key=key, value=value))
