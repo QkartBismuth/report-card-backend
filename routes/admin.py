@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from auth import get_current_user, hash_password, require_admin
 from database import get_db
 from models import (
+    AttendanceSession,
     Device,
     ErrorLog,
     Group,
@@ -21,6 +22,7 @@ from schemas import (
     GroupUpdate,
     MonitorCreate,
     MonitorOut,
+    MonitorUpdate,
     PushConfigOut,
     ServerConfigOut,
     ServerConfigUpdate,
@@ -135,6 +137,13 @@ def delete_teacher(
         raise HTTPException(status_code=400, detail="Нельзя удалить последнего администратора")
     db.query(Group).filter(Group.curator_id == teacher_id).update({"curator_id": None})
     db.query(Subject).filter(Subject.teacher_id == teacher_id).update({"teacher_id": None})
+    db.query(AttendanceSession).filter(AttendanceSession.created_by == teacher_id).update(
+        {"created_by": None}
+    )
+    db.query(AttendanceSession).filter(
+        AttendanceSession.confirmed_by == teacher_id
+    ).update({"confirmed_by": None})
+    db.query(Device).filter(Device.user_id == teacher_id).update({"user_id": None})
     db.delete(t)
     db.commit()
     return {"ok": True}
@@ -259,6 +268,36 @@ def create_monitor(
     return _monitor_out(monitor)
 
 
+@router.patch("/monitors/{monitor_id}", response_model=MonitorOut)
+def update_monitor(
+    monitor_id: int,
+    data: MonitorUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    m = db.get(User, monitor_id)
+    if not m or m.role != UserRole.monitor:
+        raise HTTPException(status_code=404, detail="Староста не найден")
+    if data.student_id is not None:
+        student = db.get(Student, data.student_id)
+        if not student:
+            raise HTTPException(status_code=404, detail="Студент не найден")
+        m.group_id = student.group_id
+        m.full_name = student.full_name
+    if data.login is not None:
+        login = data.login.strip()
+        if not login:
+            raise HTTPException(status_code=422, detail="Логин не может быть пустым")
+        if db.query(User).filter(User.login == login, User.id != m.id).first():
+            raise HTTPException(status_code=409, detail="Логин уже занят")
+        m.login = login
+    if data.password:
+        m.password_hash = hash_password(data.password)
+    db.commit()
+    db.refresh(m)
+    return _monitor_out(m)
+
+
 @router.delete("/monitors/{monitor_id}")
 def delete_monitor(
     monitor_id: int,
@@ -268,6 +307,13 @@ def delete_monitor(
     m = db.get(User, monitor_id)
     if not m or m.role != UserRole.monitor:
         raise HTTPException(status_code=404, detail="Староста не найден")
+    db.query(AttendanceSession).filter(AttendanceSession.created_by == monitor_id).update(
+        {"created_by": None}
+    )
+    db.query(AttendanceSession).filter(
+        AttendanceSession.confirmed_by == monitor_id
+    ).update({"confirmed_by": None})
+    db.query(Device).filter(Device.user_id == monitor_id).update({"user_id": None})
     db.delete(m)
     db.commit()
     return {"ok": True}

@@ -220,6 +220,31 @@ def _teacher_can_manage(db, user, s) -> bool:
     return True
 
 
+@router.delete("/{session_id}", response_model=dict)
+def delete_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    s = db.get(AttendanceSession, session_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+    if user.role == UserRole.admin:
+        pass
+    elif user.role == UserRole.monitor:
+        if user.group_id is not None and s.group_id != user.group_id:
+            raise HTTPException(status_code=403, detail="Нет доступа к сессии")
+        if s.confirmed:
+            raise HTTPException(
+                status_code=403, detail="Сессия подтверждена преподавателем"
+            )
+    else:
+        raise HTTPException(status_code=403, detail="Нет прав на удаление сессии")
+    db.delete(s)
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("/{session_id}/confirm", response_model=SessionDetail)
 def confirm_session(
     session_id: int,

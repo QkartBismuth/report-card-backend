@@ -327,6 +327,12 @@ class MonitorCreate(BaseModel):
     password: str
 
 
+class MonitorUpdate(BaseModel):
+    student_id: Optional[int] = None
+    login: Optional[str] = None
+    password: Optional[str] = None
+
+
 class MonitorOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
