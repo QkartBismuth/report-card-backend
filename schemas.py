@@ -319,3 +319,18 @@ class ScheduleImportResult(BaseModel):
     entries_count: int
     subjects_created: List[str]
     teachers_matched: List[str]
+
+
+class MonitorCreate(BaseModel):
+    student_id: int
+    login: str
+    password: str
+
+
+class MonitorOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    login: str
+    full_name: str
+    group_id: Optional[int] = None
+    group_name: Optional[str] = None

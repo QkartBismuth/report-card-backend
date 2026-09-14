@@ -7,6 +7,7 @@ from models import (
     Device,
     ErrorLog,
     Group,
+    Student,
     Subject,
     User,
     UserRole,
@@ -18,6 +19,8 @@ from schemas import (
     ErrorOut,
     GroupCreate,
     GroupUpdate,
+    MonitorCreate,
+    MonitorOut,
     PushConfigOut,
     ServerConfigOut,
     ServerConfigUpdate,
@@ -193,6 +196,81 @@ def update_group(
         "curator_id": g.curator_id,
         "curator_name": g.curator.full_name if g.curator else None,
     }
+
+
+# --------------- Monitors ---------------
+
+def _monitor_out(u: User) -> dict:
+    return {
+        "id": u.id,
+        "login": u.login,
+        "full_name": u.full_name,
+        "group_id": u.group_id,
+        "group_name": u.group.name if u.group else None,
+    }
+
+
+@router.get("/monitors", response_model=list[MonitorOut])
+def list_monitors(
+    group_id: int | None = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    q = db.query(User).filter(User.role == UserRole.monitor)
+    if group_id is not None:
+        q = q.filter(User.group_id == group_id)
+    return [_monitor_out(m) for m in q.order_by(User.full_name).all()]
+
+
+@router.post("/monitors", response_model=MonitorOut, status_code=201)
+def create_monitor(
+    data: MonitorCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    login = data.login.strip()
+    if not login or not data.password:
+        raise HTTPException(status_code=422, detail="Логин и пароль обязательны")
+    if db.query(User).filter(User.login == login).first():
+        raise HTTPException(status_code=409, detail="Логин уже занят")
+    student = db.get(Student, data.student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Студент не найден")
+    existing = (
+        db.query(User)
+        .filter(User.role == UserRole.monitor, User.group_id == student.group_id)
+        .first()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail="Староста для этой группы уже назначен. Сначала удалите текущего.",
+        )
+    monitor = User(
+        login=login,
+        password_hash=hash_password(data.password),
+        full_name=student.full_name,
+        role=UserRole.monitor,
+        group_id=student.group_id,
+    )
+    db.add(monitor)
+    db.commit()
+    db.refresh(monitor)
+    return _monitor_out(monitor)
+
+
+@router.delete("/monitors/{monitor_id}")
+def delete_monitor(
+    monitor_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    m = db.get(User, monitor_id)
+    if not m or m.role != UserRole.monitor:
+        raise HTTPException(status_code=404, detail="Староста не найден")
+    db.delete(m)
+    db.commit()
+    return {"ok": True}
 
 
 # --------------- Analytics: devices / errors ---------------
