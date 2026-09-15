@@ -13,6 +13,12 @@ def visible_groups(db: Session, user: User) -> list[Group]:
         if user.group_id is None:
             return []
         return q.filter(Group.id == user.group_id).order_by(Group.name).all()
+    if user.role == UserRole.department_head:
+        return (
+            q.filter(Group.department_head_id == user.id)
+            .order_by(Group.name)
+            .all()
+        )
     taught_ids = (
         select(AttendanceSession.group_id)
         .join(Subject, AttendanceSession.subject_id == Subject.id)
@@ -34,6 +40,8 @@ def can_access_session(db: Session, user: User, s: AttendanceSession) -> bool:
         return True
     if user.role == UserRole.monitor:
         return user.group_id is not None and s.group_id == user.group_id
+    if user.role == UserRole.department_head:
+        return s.group is not None and s.group.department_head_id == user.id
     if s.group is not None and s.group.curator_id == user.id:
         return True
     if s.subject is not None and s.subject.teacher_id == user.id:

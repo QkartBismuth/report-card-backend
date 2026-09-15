@@ -16,6 +16,9 @@ from models import (
     set_config,
 )
 from schemas import (
+    DepartmentHeadCreate,
+    DepartmentHeadOut,
+    DepartmentHeadUpdate,
     DeviceOut,
     ErrorOut,
     GroupCreate,
@@ -166,7 +169,15 @@ def create_group(
     db.add(g)
     db.commit()
     db.refresh(g)
-    return {"id": g.id, "name": g.name, "year": g.year, "curator_id": g.curator_id}
+    return {
+        "id": g.id,
+        "name": g.name,
+        "year": g.year,
+        "curator_id": g.curator_id,
+        "curator_name": g.curator.full_name if g.curator else None,
+        "department_head_id": g.department_head_id,
+        "department_head_name": g.department_head.full_name if g.department_head else None,
+    }
 
 
 @router.patch("/groups/{group_id}", response_model=dict)
@@ -196,6 +207,16 @@ def update_group(
             if not curator or curator.role != UserRole.teacher:
                 raise HTTPException(status_code=400, detail="Куратор должен быть преподавателем")
             g.curator_id = data.curator_id
+    if "department_head_id" in data.model_fields_set:
+        if data.department_head_id is None:
+            g.department_head_id = None
+        else:
+            head = db.get(User, data.department_head_id)
+            if not head or head.role != UserRole.department_head:
+                raise HTTPException(
+                    status_code=400, detail="Завотделением должен быть пользователь с ролью «Завотделения»"
+                )
+            g.department_head_id = data.department_head_id
     db.commit()
     db.refresh(g)
     return {
@@ -204,6 +225,8 @@ def update_group(
         "year": g.year,
         "curator_id": g.curator_id,
         "curator_name": g.curator.full_name if g.curator else None,
+        "department_head_id": g.department_head_id,
+        "department_head_name": g.department_head.full_name if g.department_head else None,
     }
 
 
@@ -315,6 +338,104 @@ def delete_monitor(
     ).update({"confirmed_by": None})
     db.query(Device).filter(Device.user_id == monitor_id).update({"user_id": None})
     db.delete(m)
+    db.commit()
+    return {"ok": True}
+
+
+# --------------- Department heads (завотделения) ---------------
+
+def _head_out(u: User) -> dict:
+    return {
+        "id": u.id,
+        "login": u.login,
+        "full_name": u.full_name,
+        "role": u.role.value,
+    }
+
+
+@router.get("/department_heads", response_model=list[DepartmentHeadOut])
+def list_department_heads(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    return (
+        db.query(User)
+        .filter(User.role == UserRole.department_head)
+        .order_by(User.full_name)
+        .all()
+    )
+
+
+@router.post("/department_heads", response_model=DepartmentHeadOut, status_code=201)
+def create_department_head(
+    data: DepartmentHeadCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    login = data.login.strip()
+    if not login or not data.password:
+        raise HTTPException(status_code=422, detail="Логин и пароль обязательны")
+    if db.query(User).filter(User.login == login).first():
+        raise HTTPException(status_code=409, detail="Логин уже занят")
+    if not data.full_name.strip():
+        raise HTTPException(status_code=422, detail="ФИО не может быть пустым")
+    head = User(
+        login=login,
+        password_hash=hash_password(data.password),
+        full_name=data.full_name.strip(),
+        role=UserRole.department_head,
+    )
+    db.add(head)
+    db.commit()
+    db.refresh(head)
+    return _head_out(head)
+
+
+@router.patch("/department_heads/{head_id}", response_model=DepartmentHeadOut)
+def update_department_head(
+    head_id: int,
+    data: DepartmentHeadUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    h = db.get(User, head_id)
+    if not h or h.role != UserRole.department_head:
+        raise HTTPException(status_code=404, detail="Завотделение не найден")
+    if data.login is not None:
+        login = data.login.strip()
+        if not login:
+            raise HTTPException(status_code=422, detail="Логин не может быть пустым")
+        if db.query(User).filter(User.login == login, User.id != h.id).first():
+            raise HTTPException(status_code=409, detail="Логин уже занят")
+        h.login = login
+    if data.full_name is not None:
+        if not data.full_name.strip():
+            raise HTTPException(status_code=422, detail="ФИО не может быть пустым")
+        h.full_name = data.full_name.strip()
+    if data.password:
+        h.password_hash = hash_password(data.password)
+    db.commit()
+    db.refresh(h)
+    return _head_out(h)
+
+
+@router.delete("/department_heads/{head_id}")
+def delete_department_head(
+    head_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    h = db.get(User, head_id)
+    if not h or h.role != UserRole.department_head:
+        raise HTTPException(status_code=404, detail="Завотделение не найден")
+    db.query(Group).filter(Group.department_head_id == head_id).update(
+        {"department_head_id": None}
+    )
+    db.query(AttendanceSession).filter(
+        AttendanceSession.created_by == head_id
+    ).update({"created_by": None})
+    db.query(Device).filter(Device.user_id == head_id).update({"user_id": None})
+    db.delete(h)
     db.commit()
     return {"ok": True}
 

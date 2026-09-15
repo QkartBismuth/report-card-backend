@@ -61,6 +61,12 @@ def list_sessions(
             raise HTTPException(
                 status_code=403, detail="Староста видит только свою группу"
             )
+    elif user.role == UserRole.department_head:
+        group = db.get(Group, group_id)
+        if group is None or group.department_head_id != user.id:
+            raise HTTPException(
+                status_code=403, detail="Завотделение видит только закреплённые группы"
+            )
     if date_from:
         q = q.filter(AttendanceSession.date >= date_from)
     if date_to:
@@ -99,6 +105,7 @@ def get_session(
             "session_id": r.session_id,
             "student_id": r.student_id,
             "mark": r.mark.value,
+            "comment": r.comment,
         }
         for r in records
     ]
@@ -180,7 +187,7 @@ def update_records(
     session_id: int,
     data: RecordUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_monitor),
+    user: User = Depends(get_current_user),
 ):
     s = db.get(AttendanceSession, session_id)
     if not s:
@@ -188,15 +195,25 @@ def update_records(
     if s.confirmed:
         raise HTTPException(status_code=403, detail="Сессия подтверждена преподавателем")
 
+    if user.role == UserRole.monitor:
+        if user.group_id is None or s.group_id != user.group_id:
+            raise HTTPException(
+                status_code=403, detail="Староста редактирует только свою группу"
+            )
+    elif user.role == UserRole.teacher:
+        if not can_access_session(db, user, s):
+            raise HTTPException(status_code=403, detail="Нет доступа к сессии")
+    elif user.role == UserRole.department_head:
+        raise HTTPException(
+            status_code=403, detail="Завотделение не изменяет отметки"
+        )
+    elif user.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Нет прав на изменение отметок")
+
     student_ids = {st.id for st in db.query(Student.id).filter(Student.group_id == s.group_id)}
     for item in data.records:
         sid = item.get("student_id")
-        mark_raw = item.get("mark")
-        if sid not in student_ids:
-            continue
-        try:
-            mark = MarkValue(mark_raw)
-        except ValueError:
+        if not isinstance(sid, int) or sid not in student_ids:
             continue
         rec = (
             db.query(AttendanceRecord)
@@ -206,10 +223,21 @@ def update_records(
             )
             .first()
         )
-        if rec:
-            rec.mark = mark
-        else:
-            db.add(AttendanceRecord(session_id=session_id, student_id=sid, mark=mark))
+        if rec is None:
+            rec = AttendanceRecord(
+                session_id=session_id, student_id=sid, mark=MarkValue.present
+            )
+            db.add(rec)
+        if "mark" in item:
+            try:
+                rec.mark = MarkValue(item["mark"])
+            except ValueError:
+                continue
+        raw_comment = item.get("comment")
+        if raw_comment is not None:
+            rec.comment = str(raw_comment).strip() or None
+        elif "comment" in item:
+            rec.comment = None
     db.commit()
     return get_session(session_id, db, user)
 

@@ -22,7 +22,7 @@ from routes import (
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Рапортичка API", version="1.0.0")
+app = FastAPI(title="Рапортичка API", version="1.2.2")
 
 app.add_middleware(
     CORSMiddleware,

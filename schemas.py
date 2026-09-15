@@ -25,6 +25,8 @@ class GroupOut(BaseModel):
     year: Optional[int] = None
     curator_id: Optional[int] = None
     curator_name: Optional[str] = None
+    department_head_id: Optional[int] = None
+    department_head_name: Optional[str] = None
 
 
 class StudentOut(BaseModel):
@@ -77,6 +79,7 @@ class RecordOut(BaseModel):
     session_id: int
     student_id: int
     mark: str
+    comment: Optional[str] = None
 
 
 class SessionOut(BaseModel):
@@ -148,6 +151,7 @@ class GroupUpdate(BaseModel):
     year: Optional[int] = None
     curator_id: Optional[int] = None
     teacher_id: Optional[int] = None  # deprecated, keep for compat
+    department_head_id: Optional[int] = None
 
 
 class StudentUpdate(BaseModel):
@@ -340,3 +344,15 @@ class MonitorOut(BaseModel):
     full_name: str
     group_id: Optional[int] = None
     group_name: Optional[str] = None
+
+
+class DepartmentHeadOut(TeacherOut):
+    pass
+
+
+class DepartmentHeadCreate(TeacherCreate):
+    pass
+
+
+class DepartmentHeadUpdate(TeacherUpdate):
+    pass

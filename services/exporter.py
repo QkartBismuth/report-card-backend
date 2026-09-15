@@ -20,6 +20,7 @@ MARK_RU = {
     MarkValue.late: "н",
     MarkValue.absent: "нн",
     MarkValue.excused: "у",
+    MarkValue.o: "о",
 }
 
 NOTO_REGULAR = "/usr/share/fonts/noto/NotoSans-Regular.ttf"

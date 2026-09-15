@@ -22,6 +22,7 @@ class UserRole(str, enum.Enum):
     teacher = "teacher"
     monitor = "monitor"
     admin = "admin"
+    department_head = "department_head"
 
 
 class MarkValue(str, enum.Enum):
@@ -29,6 +30,7 @@ class MarkValue(str, enum.Enum):
     absent = "absent"
     excused = "excused"
     present = "present"
+    o = "o"
 
 
 class User(Base):
@@ -62,10 +64,14 @@ class Group(Base):
     name = Column(String(50), nullable=False, unique=True)
     year = Column(Integer, nullable=True)
     curator_id = Column(Integer, ForeignKey("users.id", name="fk_groups_curator"), nullable=True)
+    department_head_id = Column(
+        Integer, ForeignKey("users.id", name="fk_groups_department_head"), nullable=True
+    )
     ktc_branch_id = Column(Integer, nullable=True)
     ktc_group_id = Column(Integer, nullable=True)
 
     curator = relationship("User", foreign_keys=[curator_id])
+    department_head = relationship("User", foreign_keys=[department_head_id])
     students = relationship("Student", back_populates="group", cascade="all, delete-orphan")
     sessions = relationship("AttendanceSession", back_populates="group")
     schedule = relationship("ScheduleEntry", back_populates="group", cascade="all, delete-orphan")
@@ -110,6 +116,7 @@ class AttendanceRecord(Base):
     mark = Column(
         Enum(MarkValue, name="mark_value"), default=MarkValue.present, nullable=False
     )
+    comment = Column(Text, nullable=True)
 
     session = relationship("AttendanceSession", back_populates="records")
     student = relationship("Student", back_populates="records")

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session, joinedload
 
-from auth import get_current_user, require_teacher
+from auth import get_current_user
 from database import get_db
 from models import AttendanceSession, Group, User, UserRole
 from services.exporter import export_bytes, export_filename
@@ -37,13 +37,26 @@ def _teacher_group(db: Session, user: User, group_id: int) -> Group:
     return group
 
 
+def _require_report_viewer(user: User):
+    if user.role not in (
+        UserRole.teacher,
+        UserRole.department_head,
+        UserRole.admin,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Только преподаватель или завотделения могут выгружать рапортички",
+        )
+
+
 @router.get("/session/{session_id}")
 def export_session(
     session_id: int,
     fmt: str = Query("pdf"),
     db: Session = Depends(get_db),
-    user: User = Depends(require_teacher),
+    user: User = Depends(get_current_user),
 ):
+    _require_report_viewer(user)
     fmt = _fmt_or_400(fmt)
     s = (
         db.query(AttendanceSession)
@@ -57,9 +70,11 @@ def export_session(
     )
     if not s:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
-    if s.group not in visible_groups(db, user) or (
-        s.group.curator_id != user.id and (s.subject is None or s.subject.teacher_id != user.id)
-    ):
+    allowed = s.group in visible_groups(db, user)
+    if allowed and user.role == UserRole.teacher and s.group.curator_id != user.id:
+        if s.subject is None or s.subject.teacher_id != user.id:
+            allowed = False
+    if not allowed:
         raise HTTPException(status_code=403, detail="Нет доступа к сессии")
     data, media = export_bytes(db, s.group, [s], fmt)
     fname = export_filename(fmt, s.group, s.date, s.date)
@@ -73,8 +88,9 @@ def export_group(
     date_to: date = Query(...),
     fmt: str = Query("pdf"),
     db: Session = Depends(get_db),
-    user: User = Depends(require_teacher),
+    user: User = Depends(get_current_user),
 ):
+    _require_report_viewer(user)
     fmt = _fmt_or_400(fmt)
     group = _teacher_group(db, user, group_id)
     if date_from > date_to:
@@ -93,7 +109,7 @@ def export_group(
         )
     )
     sessions = query.all()
-    if group.curator_id != user.id:
+    if user.role == UserRole.teacher and group.curator_id != user.id:
         sessions = [s for s in sessions if s.subject and s.subject.teacher_id == user.id]
     data, media = export_bytes(db, group, sessions, fmt)
     fname = export_filename(fmt, group, date_from, date_to)
