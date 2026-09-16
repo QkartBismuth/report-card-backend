@@ -1,4 +1,6 @@
+import calendar
 import io
+import re
 from collections import OrderedDict
 from datetime import date
 
@@ -11,7 +13,7 @@ from fpdf import FPDF
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from models import AttendanceSession, Group, MarkValue
 
@@ -222,6 +224,158 @@ def generate_xlsx(db: Session, group: Group, sheets: list) -> bytes:
         ws.column_dimensions["B"].width = 38
         for ci in range(3, 3 + len(sheet.pairs)):
             ws.column_dimensions[get_column_letter(ci)].width = 24
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+# ----------------- МЕСЯЧНАЯ ВЕДОМОСТЬ ЧАСОВ (XLSX) -----------------
+
+MONTHS_RU = [
+    "январь", "февраль", "март", "апрель", "май", "июнь",
+    "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
+]
+
+SPECIALTY_HEADER = (
+    "Специальность 09.02.07 Информационные системы и программирование "
+    "квалификация Специалист по информационным системам"
+)
+
+HOURS_PER_PAIR = 2
+
+# «н» (не был), «нн» (неуважительная причина), «у» (уважительная) = пропуск
+MISSED_MARKS = {MarkValue.late, MarkValue.absent, MarkValue.excused}
+
+
+def _group_course(group: Group, year: int, month: int) -> int:
+    """Курс из года набора в названии группы: ТЕСТ.01.01.1 -> 2024 год набора."""
+    m = re.search(r"\.(\d{2})\.(\d+)$", group.name or "")
+    if not m:
+        return 1
+    admission = 2000 + int(m.group(1))
+    acad_year = year if month >= 9 else year - 1
+    return max(1, acad_year - admission + 1)
+
+
+def generate_monthly_hours_xlsx(db: Session, group: Group, year: int, month: int) -> bytes:
+    """Ведомость учета часов, пропущенных студентами (по макету шаблона)."""
+    days_in_month = calendar.monthrange(year, month)[1]
+    sessions = (
+        db.query(AttendanceSession)
+        .options(joinedload(AttendanceSession.records))
+        .filter(
+            AttendanceSession.group_id == group.id,
+            AttendanceSession.date >= date(year, month, 1),
+            AttendanceSession.date <= date(year, month, days_in_month),
+        )
+        .all()
+    )
+
+    # (student_id, day) -> часов пропуска за день; (student_id, "excused") -> часов по уважит.
+    day_hours: dict = {}
+    excused_hours: dict = {}
+    for s in sessions:
+        day = s.date.day
+        for r in s.records:
+            if r.mark in MISSED_MARKS:
+                key = (r.student_id, day)
+                day_hours[key] = day_hours.get(key, 0) + HOURS_PER_PAIR
+            if r.mark == MarkValue.excused:
+                excused_hours[r.student_id] = (
+                    excused_hours.get(r.student_id, 0) + HOURS_PER_PAIR
+                )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"{MONTHS_RU[month - 1]} {year % 100:02d} посещ"
+    ws.freeze_panes = "B1"
+
+    thin = Side(style="thin", color="000000")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left_center = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+    # --- Заголовок (A1:AJ1) ---
+    month_name = MONTHS_RU[month - 1]
+    course = _group_course(group, year, month)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=36)
+    c = ws.cell(
+        row=1, column=1,
+        value=(
+            "Ведомость учета часов, пропущенных студентами\n"
+            f"{SPECIALTY_HEADER}    курс {course} группа {group.name} "
+            f"месяц {month_name.capitalize()}"
+        ),
+    )
+    c.font = Font(name="Times New Roman", size=11)
+    c.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    ws.row_dimensions[1].height = 40.5
+
+    # --- Шапка (строка 2) и числа месяца (строка 3) ---
+    ws.cell(row=2, column=1, value="№").alignment = center
+    ws.cell(row=2, column=2, value="Ф.И.О.").alignment = center
+    ws.merge_cells(start_row=2, start_column=3, end_row=2, end_column=33)
+    ws.cell(row=2, column=3, value="Числа месяца").alignment = center
+    ws.merge_cells(start_row=2, start_column=34, end_row=2, end_column=36)
+    ws.cell(row=2, column=34, value="Пропуски").alignment = center
+    ws.row_dimensions[2].height = 18.75
+
+    for d in range(1, 32):
+        ws.cell(row=3, column=2 + d, value=d).alignment = center
+    ws.row_dimensions[3].height = 15.75
+
+    # --- Студенты ---
+    students = _students(db, group)
+    r = 4
+    for num, st in enumerate(students, start=1):
+        ws.row_dimensions[r].height = 14.1
+        total = 0
+        for d in range(1, 32):
+            h = day_hours.get((st.id, d), 0)
+            if h:
+                c = ws.cell(row=r, column=2 + d, value=h)
+                c.alignment = center
+            total += h
+        excused = excused_hours.get(st.id, 0)
+        ws.cell(row=r, column=1, value=num).alignment = center
+        ws.cell(row=r, column=2, value=st.full_name).alignment = left_center
+        c = ws.cell(row=r, column=34, value=excused or None)
+        c.alignment = center
+        c = ws.cell(row=r, column=35, value=(total - excused) or None)
+        c.alignment = center
+        c = ws.cell(row=r, column=36, value=total or None)
+        c.alignment = center
+        r += 1
+
+    # --- Итоги ---
+    ws.cell(row=r, column=32, value="Всего:").alignment = center
+    ws.cell(row=r, column=34, value=sum(excused_hours.values()) or None).alignment = center
+    ws.cell(row=r, column=35, value=sum(
+        (day_hours.get((st.id, d), 0) for st in students for d in range(1, 32))
+    ) - sum(excused_hours.values()) or None).alignment = center
+    ws.cell(row=r, column=36, value=sum(
+        day_hours.get((st.id, d), 0) for st in students for d in range(1, 32)
+    ) or None).alignment = center
+
+    # --- Подпись куратора ---
+    r += 1
+    ws.merge_cells(start_row=r, start_column=10, end_row=r, end_column=18)
+    ws.cell(row=r, column=10, value="Подпись куратора группы").alignment = center
+    ws.cell(row=r, column=19, value="_____________________").alignment = center
+
+    # --- Границы и ширина колонок ---
+    for row in ws.iter_rows(min_row=2, max_row=r, min_col=1, max_col=36):
+        for cell in row:
+            cell.border = border
+
+    ws.column_dimensions["A"].width = 3.85
+    ws.column_dimensions["B"].width = 19.42
+    for d in range(1, 32):
+        ws.column_dimensions[get_column_letter(2 + d)].width = 3.0
+    ws.column_dimensions["AH"].width = 6.13
+    ws.column_dimensions["AI"].width = 6.7
+    ws.column_dimensions["AJ"].width = 6.56
 
     buf = io.BytesIO()
     wb.save(buf)

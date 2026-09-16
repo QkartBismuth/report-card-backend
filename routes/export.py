@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session, joinedload
 from auth import get_current_user
 from database import get_db
 from models import AttendanceSession, Group, User, UserRole
-from services.exporter import export_bytes, export_filename
+from services.exporter import (
+    export_bytes,
+    export_filename,
+    generate_monthly_hours_xlsx,
+)
 from services.visibility import visible_groups
 
 router = APIRouter(prefix="/export", tags=["export"])
@@ -114,3 +118,29 @@ def export_group(
     data, media = export_bytes(db, group, sessions, fmt)
     fname = export_filename(fmt, group, date_from, date_to)
     return Response(content=data, media_type=media, headers=_download_headers(fname))
+
+
+@router.get("/month/{group_id}")
+def export_month(
+    group_id: int,
+    year: int = Query(...),
+    month: int = Query(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Ведомость учета часов, пропущенных студентами за месяц (куратор группы)."""
+    _require_report_viewer(user)
+    if not 1 <= month <= 12:
+        raise HTTPException(status_code=400, detail="Месяц должен быть от 1 до 12")
+    group = _teacher_group(db, user, group_id)
+    if user.role == UserRole.teacher and group.curator_id != user.id:
+        raise HTTPException(
+            status_code=403, detail="Месячный отчёт доступен куратору группы"
+        )
+    data = generate_monthly_hours_xlsx(db, group, year, month)
+    fname = f"vedomost_{group.name}_{year}-{month:02d}.xlsx"
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=_download_headers(fname),
+    )
