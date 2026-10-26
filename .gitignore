@@ -30,3 +30,6 @@ uploads/
 /*.docx
 /*.xls
 /*.xlsx
+
+# Локальные учётные данные — не коммитятся
+/credentials.md
