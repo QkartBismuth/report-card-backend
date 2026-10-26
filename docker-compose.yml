@@ -1,0 +1,42 @@
+# Стек «Рапортичка»: PostgreSQL + backend API.
+#
+# Перед первым запуском создайте рядом файл .env (см. .env.example):
+#     POSTGRES_PASSWORD=<пароль>
+#
+# Запуск:   docker compose up -d --build
+# Остановка: docker compose down
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: raport
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+      POSTGRES_DB: raport
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raport -d raport"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://raport:${POSTGRES_PASSWORD}@db:5432/raport
+    ports:
+      - "8010:8010"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

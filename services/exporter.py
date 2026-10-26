@@ -249,7 +249,7 @@ MISSED_MARKS = {MarkValue.late, MarkValue.absent, MarkValue.excused}
 
 
 def _group_course(group: Group, year: int, month: int) -> int:
-    """Курс из года набора в названии группы: ТЕСТ.01.01.1 -> 2024 год набора."""
+    """Курс из года набора в названии группы: ТЕСТ.01.24.1 -> 2024 год набора."""
     m = re.search(r"\.(\d{2})\.(\d+)$", group.name or "")
     if not m:
         return 1

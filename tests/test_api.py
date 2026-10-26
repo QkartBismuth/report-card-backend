@@ -180,7 +180,7 @@ if __name__ == "__main__":
         print("SKIP - sample docx not found:", SAMPLE_DOCX)
 
     s, _, _ = req("POST", "/upload/raport/apply", mon, body={
-        "group_name": "TEST.11.22.3", "group_year": 2026, "students": ["Петров Пётр Петрович", "Демова Анна"],
+        "group_name": "TEST.11.22.3", "group_year": 2026, "students": ["Демо Студент 01", "Демо Студент 02"],
     })
     ok("apply raport", s == 200)
 

@@ -24,7 +24,7 @@ if not tea2:
     tea2 = User(
         login="teacher2",
         password_hash=hash_password("teacher2"),
-        full_name="Петров Пётр Петрович",
+        full_name="Демо Преподаватель Демоевич",
         role=UserRole.teacher,
     )
     db.add(tea2)
